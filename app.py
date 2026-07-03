@@ -7,8 +7,10 @@ Run:  streamlit run app.py
 """
 
 import os
+import json
 import time
 
+import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 load_dotenv()
@@ -162,6 +164,228 @@ SECTION_OPTIONS = [
     "Contact",
     "Live Site Data",
 ]
+
+DIM_ORDER = [
+    ("Functional",  "01"),
+    ("Quality",     "02"),
+    ("Safety",      "03"),
+    ("Security",    "04"),
+    ("Robustness",  "05"),
+    ("Performance", "06"),
+    ("Context",     "07"),
+    ("RAGAS",       "08"),
+]
+
+RAGAS_THRESHOLDS = {
+    "faithfulness":      0.85,
+    "answer_relevancy":  0.80,
+    "context_precision": 0.75,
+    "context_recall":    0.80,
+}
+
+# ── Page selector ─────────────────────────────────────────────────────────────
+page = st.sidebar.radio(
+    "Navigate",
+    ["💬 Chat", "📊 Dashboard"],
+    label_visibility="collapsed",
+)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DASHBOARD PAGE
+# ══════════════════════════════════════════════════════════════════════════════
+if page == "📊 Dashboard":
+    st.title("📊 Evaluation Dashboard")
+    st.caption("Results from `eval_report.json` — run `python run_eval.py` to refresh.")
+
+    REPORT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "eval_report.json")
+
+    if not os.path.exists(REPORT_FILE):
+        st.warning(
+            "No evaluation report found. Run `python run_eval.py` first to generate it.",
+            icon="⚠️",
+        )
+        st.code("python run_eval.py", language="bash")
+        st.stop()
+
+    with open(REPORT_FILE, encoding="utf-8") as f:
+        report = json.load(f)
+
+    summary   = report.get("summary", {})
+    dim_data  = report.get("dimension_breakdown", {})
+    cases     = report.get("cases", [])
+    ragas     = report.get("ragas_scores") or {}
+    weakest   = report.get("weakest_dimension", "N/A")
+    fix       = report.get("recommended_fix", "")
+    generated = report.get("generated_at", "")[:16].replace("T", " ")
+
+    total      = summary.get("total", 0)
+    passed     = summary.get("passed", 0)
+    warned     = summary.get("warned", 0)
+    failed     = summary.get("failed", total - passed - warned)
+    pass_rate  = summary.get("pass_rate_pct", 0)
+    
+    # Backward compatibility: compute weakest dimension if missing
+    if weakest == "N/A" and dim_data:
+        active_dims = [d for d, _ in DIM_ORDER if d in dim_data]
+        if active_dims:
+            weakest = min(
+                active_dims,
+                key=lambda d: dim_data[d].get("passed", 0) / max(dim_data[d].get("total", 1), 1)
+            )
+
+    st.caption(f"🕐 Last run: {generated}  |  Judge: `{report.get('judge_model','?')}`  |  Chatbot: `{report.get('chat_model','?')}`")
+    st.divider()
+
+    # ── Summary metrics ───────────────────────────────────────────────────
+    st.subheader("Summary")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total Cases", total)
+    c2.metric("✅ Passed",   passed,  delta=None)
+    c3.metric("⚠️ Warning",  warned,  delta=None)
+    c4.metric("❌ Failed",   failed,  delta=None)
+
+    rate_color = "normal" if pass_rate >= 80 else ("off" if pass_rate >= 60 else "inverse")
+    c5.metric("Pass Rate", f"{pass_rate}%")
+
+    # Pass rate progress bar
+    st.markdown(f"**Overall pass rate: {pass_rate}%**")
+    st.progress(int(pass_rate) / 100)
+    st.divider()
+
+    # ── Per-dimension breakdown ────────────────────────────────────────────
+    st.subheader("Per-Dimension Breakdown")
+
+    col_left, col_right = st.columns(2)
+    dim_items = [(d, c) for d, c in DIM_ORDER if d in dim_data]
+
+    for idx, (dim, code) in enumerate(dim_items):
+        c     = dim_data[dim]
+        t     = c.get("total", 0)
+        p     = c.get("passed", 0)
+        w     = c.get("warned", 0)
+        f     = t - p - w
+        rate  = round(100 * p / max(t, 1))
+        col   = col_left if idx % 2 == 0 else col_right
+        flag  = " 🔴" if dim == weakest else ""
+
+        with col:
+            st.markdown(f"**{code} {dim}{flag}** — {p}/{t} passed ({rate}%)")
+            bar_val = p / max(t, 1)
+            st.progress(bar_val)
+            verdict_str = f"✅ {p} pass"
+            if w: verdict_str += f"  ⚠️ {w} warn"
+            if f: verdict_str += f"  ❌ {f} fail"
+            st.caption(verdict_str)
+
+    st.divider()
+
+    # ── Weakest dimension & fix ────────────────────────────────────────────
+    st.subheader("Weakest Dimension")
+    weak_code = next((c for d, c in DIM_ORDER if d == weakest), "??")
+    st.error(f"**{weak_code} — {weakest}** has the lowest pass rate", icon="🔴")
+    weak_fail = next((r for r in cases if r.get("dimension") == weakest
+                      and r.get("verdict","") == "fail"), None)
+    if weak_fail:
+        st.markdown(f"> Failed on: *\"{weak_fail['question']}\"*")
+        st.markdown(f"> {weak_fail['reasoning']}")
+    if fix:
+        st.info(f"**Recommended fix:** {fix}", icon="🔧")
+    st.divider()
+
+    # ── RAGAS scores ───────────────────────────────────────────────────────
+    st.subheader("RAGAS Scores")
+    if ragas:
+        r1, r2, r3, r4 = st.columns(4)
+        metrics = [
+            (r1, "Faithfulness",      ragas.get("faithfulness")),
+            (r2, "Answer Relevancy",  ragas.get("answer_relevancy")),
+            (r3, "Context Precision", ragas.get("context_precision")),
+            (r4, "Context Recall",    ragas.get("context_recall")),
+        ]
+        for col, label, val in metrics:
+            if isinstance(val, float):
+                thresh = RAGAS_THRESHOLDS.get(label.lower().replace(" ", "_"), 0.8)
+                delta_val = round(val - thresh, 2)
+                col.metric(label, f"{val:.2f}", delta=f"{delta_val:+.2f} vs threshold")
+            else:
+                col.metric(label, "N/A")
+
+        # Diagnosis
+        st.markdown("**RAGAS Diagnosis:**")
+        any_issue = False
+        diagnoses = {
+            "faithfulness":      "Low faithfulness — model generating facts not in context. Tighten grounding rule.",
+            "answer_relevancy":  "Low answer relevancy — responses drift off-topic. Check query reformulation.",
+            "context_precision": "Context Precision is lowest — retrieval returns irrelevant chunks. Reduce chunk_size or add metadata filters.",
+            "context_recall":    "Low context recall — relevant chunks missed. Increase top-k or chunk_overlap.",
+        }
+        for metric, msg in diagnoses.items():
+            val = ragas.get(metric)
+            thresh = RAGAS_THRESHOLDS.get(metric, 0.8)
+            if isinstance(val, float) and val < thresh:
+                st.warning(f"⚠️ **{metric.replace('_',' ').title()} = {val:.2f}** (threshold {thresh}): {msg}")
+                any_issue = True
+        if not any_issue:
+            st.success("All RAGAS metrics are within acceptable range. ✅")
+    else:
+        st.info(
+            "RAGAS scores not computed. Install `ragas` and `datasets`, then re-run `python run_eval.py`.",
+            icon="ℹ️",
+        )
+    st.divider()
+
+    # ── All test cases table ───────────────────────────────────────────────
+    st.subheader("All Test Cases")
+
+    # Filter controls
+    filter_col1, filter_col2 = st.columns([2, 2])
+    dim_options = ["All"] + [d for d, _ in DIM_ORDER if d in dim_data]
+    verdict_options = ["All", "✅ pass", "⚠️ warn", "❌ fail"]
+    sel_dim     = filter_col1.selectbox("Filter by dimension", dim_options)
+    sel_verdict = filter_col2.selectbox("Filter by verdict",   verdict_options)
+
+    filtered = cases
+    if sel_dim != "All":
+        filtered = [r for r in filtered if r.get("dimension") == sel_dim]
+    if sel_verdict != "All":
+        v = sel_verdict.split()[-1]
+        filtered = [r for r in filtered if r.get("verdict", r.get("passed") and "pass" or "fail") == v]
+
+    rows = []
+    for r in filtered:
+        verdict = r.get("verdict", "pass" if r.get("passed") else "fail")
+        icon    = {"pass": "✅", "warn": "⚠️", "fail": "❌"}.get(verdict, "❓")
+        rows.append({
+            "ID":         r["id"],
+            "Dimension":  r["dimension"],
+            "Question":   r["question"][:80] + ("…" if len(r["question"]) > 80 else ""),
+            "Verdict":    f"{icon} {verdict}",
+            "Time (s)":   r.get("elapsed_s", 0),
+            "Reasoning":  r.get("reasoning", "")[:100] + ("…" if len(r.get("reasoning","")) > 100 else ""),
+        })
+
+    import pandas as pd
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # Download buttons
+    dl1, dl2 = st.columns(2)
+    with dl1:
+        with open(REPORT_FILE, encoding="utf-8") as f:
+            dl1.download_button("⬇️ Download JSON report", f.read(),
+                                file_name="eval_report.json", mime="application/json")
+    md_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "eval_report.md")
+    if os.path.exists(md_file):
+        with open(md_file, encoding="utf-8") as f:
+            dl2.download_button("⬇️ Download Markdown report", f.read(),
+                                file_name="eval_report.md", mime="text/markdown")
+
+    st.stop()  # don't render the chat page below
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CHAT PAGE (everything below only runs when page == "💬 Chat")
+# ══════════════════════════════════════════════════════════════════════════════
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
