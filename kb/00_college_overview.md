@@ -69,11 +69,10 @@ To emerge as the best among the institutes of technology and research in the cou
 ## Departments
 - Basic Sciences and Humanities (BS&H)
 - Computer Science and Engineering (CSE)
-- Artificial Intelligence & Machine Learning (AI&ML)
+- Artificial Intelligence & Machine Learning (AI&ML / CSE-AIML)
 - Electronics and Communication Engineering (ECE)
 - Electrical and Electronics Engineering (EEE)
 - Information Technology (IT)
-- Honor Degree Program
 
 ## Rankings & Recognitions
 - Recognized by AICTE for Best Practices

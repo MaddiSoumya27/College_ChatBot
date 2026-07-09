@@ -2,6 +2,7 @@
 app.py
 ------
 Phase 4: Streamlit Chat UI for BVRIT Hyderabad RAG Chatbot.
+Updated: Wired with all five memory layers from memory.py.
 
 Run:  streamlit run app.py
 """
@@ -20,6 +21,25 @@ load_dotenv()
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 from rag_pipeline import run_rag_pipeline, get_vectorstore, reset_vectorstore
+
+# ── Memory layers ─────────────────────────────────────────────────────────────
+from memory import (
+    # Layer 1 — Short-term
+    make_user_turn, make_assistant_turn, get_llm_history,
+    # Layer 2 — Medium-term
+    maybe_summarize, get_llm_history_with_summary,
+    # Layer 3 — Long-term
+    init_db, load_profile, save_profile, extract_and_update_profile,
+    # Layer 4 — Personalization
+    build_personalization_prefix,
+    # Layer 5 — Privacy
+    expire_old_profiles, is_clear_data_command, handle_clear_data,
+    get_or_create_user_id, PRIVACY_NOTICE,
+)
+
+# ── One-time startup tasks ────────────────────────────────────────────────────
+init_db()           # ensure SQLite table exists
+expire_old_profiles()  # Layer 5: remove profiles idle > 30 days
 
 # ── Image gallery — keyword → list of (caption, url) ─────────────────────────
 # All URLs verified from bvrithyderabad.edu.in official site
@@ -146,10 +166,276 @@ def is_image_only_request(text: str) -> bool:
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="BVRITH Info Assistant",
+    page_title="BVRIT Hyderabad — Info Assistant",
     page_icon="🎓",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
+
+# ── Professional UI Theme ─────────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* ── Google Font ── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ── Global ── */
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+/* ── App background ── */
+.stApp {
+    background-color: #f4f6fb;
+    color: #0a1f44;
+}
+
+/* ── Main content text — force dark colour everywhere outside sidebar ── */
+.main p, .main li, .main span, .main div,
+.main label, .main strong, .main em,
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] span {
+    color: #0a1f44 !important;
+}
+
+/* ── Hide Streamlit default header/footer ── */
+#MainMenu, footer, header { visibility: hidden; }
+
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0a1f44 0%, #0d2b5e 100%);
+    border-right: 1px solid #1a3a6e;
+}
+[data-testid="stSidebar"] * {
+    color: #000000 !important;
+}
+[data-testid="stSidebar"] .stButton > button {
+    background-color: #1a3a6e;
+    color: #ffffff !important;
+    border: 1px solid #2e5aad;
+    border-radius: 6px;
+    width: 100%;
+    font-size: 0.82rem;
+    font-weight: 500;
+    padding: 0.4rem 0.8rem;
+    transition: background 0.2s;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+    background-color: #2e5aad;
+}
+[data-testid="stSidebar"] [data-testid="stMetricValue"] {
+    font-size: 0.78rem !important;
+    color: #a8c0f0 !important;
+}
+[data-testid="stSidebar"] .stSlider label,
+[data-testid="stSidebar"] .stSelectbox label {
+    font-size: 0.78rem !important;
+    color: #a8c0f0 !important;
+}
+[data-testid="stSidebar"] .stRadio label {
+    color: #d4dff7 !important;
+    font-size: 0.85rem;
+}
+[data-testid="stSidebar"] hr {
+    border-color: #1a3a6e !important;
+}
+[data-testid="stSidebar"] h2 {
+    color: #c9a84c !important;
+    font-size: 0.9rem !important;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+/* ── Sidebar nav radio buttons ── */
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    background-color: #1a3a6e;
+    color: #ffffff !important;
+    border-radius: 6px;
+    padding: 0.4rem 0.8rem;
+    margin-bottom: 0.3rem;
+    display: block;
+    font-size: 0.88rem;
+    font-weight: 500;
+    transition: background 0.2s;
+    cursor: pointer;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+    background-color: #2e5aad;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] [aria-checked="true"] + div label,
+[data-testid="stSidebar"] [data-testid="stRadio"] input:checked ~ label {
+    background-color: #2e5aad !important;
+    color: #ffffff !important;
+}
+
+/* ── Official header banner ── */
+.bvrit-header {
+    background: linear-gradient(135deg, #0a1f44 0%, #0d2b5e 60%, #1a3a6e 100%);
+    border-bottom: 3px solid #c9a84c;
+    padding: 1.1rem 2rem 1rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    border-radius: 10px;
+    margin-bottom: 1.2rem;
+    box-shadow: 0 2px 12px rgba(10,31,68,0.18);
+}
+.bvrit-header-logo {
+    font-size: 2.4rem;
+    line-height: 1;
+}
+.bvrit-header-text h1 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #c9a84c;
+    letter-spacing: 0.01em;
+    line-height: 1.3;
+}
+.bvrit-header-text p {
+    margin: 0.15rem 0 0 0;
+    font-size: 0.78rem;
+    color: #c9a84c;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+/* ── Chat container background ── */
+[data-testid="stChatMessageContainer"] {
+    background: transparent;
+}
+
+/* ── Chat messages ── */
+[data-testid="stChatMessage"] {
+    border-radius: 10px;
+    padding: 0.6rem 1rem;
+    margin-bottom: 0.5rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    color: #0a1f44 !important;
+}
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] li,
+[data-testid="stChatMessage"] span,
+[data-testid="stChatMessage"] div,
+[data-testid="stChatMessage"] strong,
+[data-testid="stChatMessage"] em,
+[data-testid="stChatMessage"] code,
+[data-testid="stChatMessage"] a {
+    color: #0a1f44 !important;
+}
+[data-testid="stChatMessage"] a {
+    color: #2e5aad !important;
+    text-decoration: underline;
+}
+
+/* User bubble */
+[data-testid="stChatMessage"][data-testid*="user"],
+div[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    background-color: #e8edf8;
+    border-left: 3px solid #2e5aad;
+}
+
+/* Assistant bubble */
+div[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
+    background-color: #f0f4ff;
+    border-left: 3px solid #c9a84c;
+}
+
+/* Source / caption text inside chat */
+[data-testid="stChatMessage"] .stCaption,
+[data-testid="stChatMessage"] small {
+    color: #000000 !important;
+    font-size: 0.72rem;
+}
+[data-testid="stChatInput"] textarea {
+    background-color: #ffffff;
+    border: 1.5px solid #c9d4ef;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    color: #0a1f44;
+    box-shadow: 0 1px 6px rgba(10,31,68,0.07);
+}
+[data-testid="stChatInput"] textarea:focus {
+    border-color: #2e5aad;
+    box-shadow: 0 0 0 3px rgba(46,90,173,0.12);
+}
+
+/* ── Chat input send button ── */
+[data-testid="stChatInput"] button {
+    background-color: #0a1f44 !important;
+    border-radius: 8px !important;
+    color: #c9a84c !important;
+}
+[data-testid="stChatInput"] button:hover {
+    background-color: #2e5aad !important;
+}
+
+/* ── Spinner ── */
+[data-testid="stSpinner"] p {
+    color: #2e5aad;
+    font-size: 0.82rem;
+}
+
+/* ── Caption / source badges ── */
+.stChatMessage .stCaption {
+    font-size: 0.72rem;
+    color: #000000;
+}
+
+/* ── Warning / info boxes ── */
+.stAlert {
+    border-radius: 8px;
+    font-size: 0.82rem;
+}
+
+/* ── Metric cards in dashboard ── */
+[data-testid="stMetric"] {
+    background-color: #ffffff;
+    border-radius: 8px;
+    padding: 0.7rem 1rem;
+    border: 1px solid #e0e6f5;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+[data-testid="stMetricLabel"] {
+    font-size: 0.75rem !important;
+    color: #6b7a9e !important;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+[data-testid="stMetricValue"] {
+    font-size: 1.35rem !important;
+    color: #0a1f44 !important;
+    font-weight: 700;
+}
+
+/* ── Progress bars ── */
+[data-testid="stProgressBar"] > div > div {
+    background: linear-gradient(90deg, #0a1f44, #2e5aad);
+    border-radius: 4px;
+}
+
+/* ── Dataframe table ── */
+[data-testid="stDataFrame"] {
+    border-radius: 8px;
+    border: 1px solid #e0e6f5;
+    overflow: hidden;
+}
+
+/* ── Divider ── */
+hr {
+    border-color: #e0e6f5 !important;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f4f6fb; }
+::-webkit-scrollbar-thumb { background: #c9d4ef; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #2e5aad; }
+</style>
+""", unsafe_allow_html=True)
 
 CHROMA_DIR = "./bvrith_chroma_db"
 SECTION_OPTIONS = [
@@ -184,11 +470,20 @@ RAGAS_THRESHOLDS = {
 }
 
 # ── Page selector ─────────────────────────────────────────────────────────────
-page = st.sidebar.radio(
-    "Navigate",
-    ["💬 Chat", "📊 Dashboard"],
-    label_visibility="collapsed",
-)
+with st.sidebar:
+    st.markdown("""
+    <div style='background:#1a3a6e; border-radius:8px; padding:0.5rem 0.8rem 0.3rem 0.8rem;
+                margin-bottom:0.6rem;'>
+        <div style='color:#c9a84c; font-size:0.72rem; font-weight:700;
+                    letter-spacing:0.08em; text-transform:uppercase;
+                    margin-bottom:0.3rem;'>📌 Navigation</div>
+    </div>
+    """, unsafe_allow_html=True)
+    page = st.radio(
+        "Navigate",
+        ["💬 Chat", "📊 Dashboard"],
+        label_visibility="collapsed",
+    )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD PAGE
@@ -389,7 +684,14 @@ if page == "📊 Dashboard":
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.title("⚙️ Settings")
+    st.markdown("""
+    <div style='text-align:center; padding: 0.6rem 0 0.4rem 0;'>
+        <div style='font-size:1.6rem;'>🎓</div>
+        <div style='color:#c9a84c; font-size:0.95rem; font-weight:700;
+                    letter-spacing:0.05em; text-transform:uppercase;'>BVRIT Hyderabad</div>
+        <div style='color:#7a94cc; font-size:0.7rem; margin-top:2px;'>Info Assistant</div>
+    </div>
+    """, unsafe_allow_html=True)
     st.divider()
 
     index_exists = os.path.isdir(CHROMA_DIR) and any(
@@ -428,17 +730,53 @@ with st.sidebar:
         st.success("Index cache cleared — will reload on next query.")
 
     st.divider()
+
+    # ── Memory / Profile panel (Layer 3 + 5) ─────────────────────────────
+    st.subheader("🧠 Memory")
+    # Ensure user_id exists
+    uid = get_or_create_user_id(st.session_state)
+    profile = st.session_state.get("profile", {})
+    if profile.get("name"):
+        st.caption(f"👤 {profile['name']}")
+    if profile.get("branch_interest"):
+        st.caption(f"🎓 Branch: {profile['branch_interest']}")
+    if profile.get("detail_level"):
+        st.caption(f"📝 Style: {profile['detail_level']}")
+
+    if st.button("🗑️ Clear my data (Privacy)"):
+        msg = handle_clear_data(uid)
+        st.session_state.messages = []
+        st.session_state.profile = {}
+        st.session_state.privacy_shown = False
+        st.session_state.pop("user_id", None)
+        st.success(msg)
+        st.rerun()
+
+    st.divider()
     st.caption("Built with LangChain · ChromaDB · GPT-4o mini · Streamlit")
 
 # ── Main area ─────────────────────────────────────────────────────────────────
-st.title("🎓 BVRIT Hyderabad — College Information Assistant")
-st.caption(
-    "Ask me anything about BVRIT Hyderabad College of Engineering for Women — "
-    "admissions, fees, departments, placements, facilities, faculty, and more."
-)
+st.markdown("""
+<div class="bvrit-header">
+    <div class="bvrit-header-logo">🎓</div>
+    <div class="bvrit-header-text">
+        <h1>BVRIT Hyderabad — Official Information Assistant</h1>
+        <p>College of Engineering for Women &nbsp;|&nbsp; Powered by RAG &amp; GPT-4o mini</p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+# ── Layer 3: Load user profile at session start ───────────────────────────────
+uid = get_or_create_user_id(st.session_state)
+if "profile" not in st.session_state:
+    st.session_state.profile = load_profile(uid)
+
+# ── Layer 5: Show privacy notice on first interaction ─────────────────────────
+if "privacy_shown" not in st.session_state:
+    st.session_state.privacy_shown = False
 
 # Render existing conversation
 for msg in st.session_state.messages:
@@ -457,9 +795,31 @@ for msg in st.session_state.messages:
             st.caption(f"⏱ {msg['elapsed']:.2f}s")
 
 # Chat input
-if prompt := st.chat_input("Ask about BVRITH…"):
-    # Add user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
+if prompt := st.chat_input("Ask about BVRIT Hyderabad…"):
+
+    # ── Layer 5: Show privacy notice on very first user message ───────────
+    if not st.session_state.privacy_shown:
+        with st.chat_message("assistant"):
+            st.markdown(PRIVACY_NOTICE)
+        st.session_state.messages.append(
+            make_assistant_turn(PRIVACY_NOTICE, [], False)
+        )
+        st.session_state.privacy_shown = True
+
+    # ── Layer 5: Handle "clear my data" command ───────────────────────────
+    if is_clear_data_command(prompt):
+        clear_msg = handle_clear_data(uid)
+        with st.chat_message("assistant"):
+            st.markdown(clear_msg)
+        # Reset all session memory
+        st.session_state.messages = []
+        st.session_state.profile = {}
+        st.session_state.privacy_shown = False
+        st.session_state.pop("user_id", None)
+        st.rerun()
+
+    # ── Layer 1: Add clean user message (NO context block) ────────────────
+    st.session_state.messages.append(make_user_turn(prompt))
     with st.chat_message("user"):
         st.markdown(prompt)
 
@@ -485,23 +845,200 @@ if prompt := st.chat_input("Ask about BVRITH…"):
                     with cols[i % 3]:
                         st.image(url, caption=caption, use_container_width=True)
                 st.caption("📷 Images sourced from bvrithyderabad.edu.in — visit the [gallery](https://bvrithyderabad.edu.in/gallery/) for more.")
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": IMAGE_ONLY_RESPONSE,
-                "citations": [],
-                "refused": False,
-                "elapsed": 0.0,
-                "images": images,
-            })
+            st.session_state.messages.append(
+                make_assistant_turn(IMAGE_ONLY_RESPONSE, [], False, 0.0, images)
+            )
             st.stop()
+
+        # ── Fast-path: greetings — reply warmly, skip RAG pipeline ──────────
+        import random as _random
+        _lower_prompt = prompt.lower().strip()
+        _profile = st.session_state.profile
+
+        _GREETING_TRIGGERS = {
+            # hello variants
+            "hi", "hii", "hiii", "hiiii", "hey", "hello", "helo", "hllo", "helo",
+            "heya", "heyo", "heyy",
+            # good X
+            "good morning", "good afternoon", "good evening", "good night",
+            "gm", "gn",
+            # what's up
+            "what's up", "whats up", "wassup", "sup",
+            # howdy / namaste
+            "howdy", "namaste", "namaskar", "vanakkam",
+            # how are you
+            "how are you", "how r u", "how are u", "how r you",
+            "how's it going", "how is it going", "how do you do",
+            "hru",
+        }
+
+        def _is_greeting(text: str) -> bool:
+            """True when the entire message (ignoring punctuation) is a greeting."""
+            clean = text.strip().rstrip("!?.,").lower()
+            _QUESTION_WORDS = {"what", "which", "how", "where", "when", "who",
+                               "why", "is", "are", "does", "do", "can", "tell",
+                               "show", "list", "give", "explain", "fee", "fees",
+                               "department", "admission", "placement", "faculty"}
+            # exact match
+            if clean in _GREETING_TRIGGERS:
+                return True
+            # starts with a greeting token and is short (≤5 words) with no question words
+            words = clean.split()
+            if len(words) <= 5:
+                for trigger in _GREETING_TRIGGERS:
+                    if clean.startswith(trigger):
+                        # reject if remaining words contain a question/topic word
+                        remaining = words[len(trigger.split()):]
+                        if not any(w in _QUESTION_WORDS for w in remaining):
+                            return True
+            return False
+
+        if _is_greeting(_lower_prompt):
+            _name = _profile.get("name")
+            _branch = _profile.get("branch_interest")
+
+            # Pick a time-appropriate opener for good-morning/evening etc.
+            _lower_clean = _lower_prompt.rstrip("!?., ")
+            if "morning" in _lower_clean or _lower_clean == "gm":
+                _opener = "Good morning"
+            elif "afternoon" in _lower_clean:
+                _opener = "Good afternoon"
+            elif "evening" in _lower_clean:
+                _opener = "Good evening"
+            elif "night" in _lower_clean or _lower_clean == "gn":
+                _opener = "Good night"
+            else:
+                _opener = _random.choice(["Hello", "Hi there", "Hey", "Hi"])
+
+            # Personalise with name if known
+            _greeting = f"{_opener}, **{_name}**! 👋" if _name else f"{_opener}! 👋"
+
+            # Tailor the follow-up based on what we know
+            if _branch:
+                _follow = (
+                    f"I remember you're interested in **{_branch}** at BVRIT Hyderabad. "
+                    f"Feel free to ask me about admissions, fees, placements, faculty, or anything else!"
+                )
+            else:
+                _follow = (
+                    "I'm the BVRIT Hyderabad Information Assistant. "
+                    "Ask me anything about admissions, departments, fees, placements, "
+                    "facilities, or faculty!"
+                )
+
+            _greet_reply = f"{_greeting}\n\n{_follow}"
+            st.markdown(_greet_reply)
+            st.session_state.messages.append(
+                make_assistant_turn(_greet_reply, [], False, 0.0)
+            )
+            st.rerun()
+
+        # ── Detect "I am telling you my name/branch" (declaration) ──────────
+        import re as _re
+        _name_declared = _re.search(
+            r"(?:my name is|i am|i'm|call me)\s+([A-Za-z][A-Za-z\s]{0,30}?)(?:\s*[,.]|$)",
+            _lower_prompt,
+        )
+        _branch_declared = _re.search(
+            r"(?:my branch is|i(?:'m| am) (?:interested in|studying|from)|interested in)\s+"
+            r"(cse[-\s]?aiml|cse|ece|eee|it\b|information technology|computer science|"
+            r"electronics|electrical|aiml|ai\s*&?\s*ml)",
+            _lower_prompt,
+        )
+
+        _declaration_reply_parts = []
+
+        if _name_declared:
+            _extracted_name = _name_declared.group(1).strip().title()
+            # Filter out false positives like "i am interested in cse"
+            _stop_words = {"interested", "from", "studying", "a", "an", "the", "student",
+                           "here", "looking", "planning", "going", "want"}
+            if _extracted_name.lower().split()[0] not in _stop_words:
+                _profile["name"] = _extracted_name
+                _profile["user_id"] = uid
+                st.session_state.profile = _profile
+                save_profile(_profile)
+                _declaration_reply_parts.append(f"Got it! I'll remember your name is **{_extracted_name}**.")
+
+        if _branch_declared:
+            _raw_branch = _branch_declared.group(1).strip().upper()
+            # Normalise common variants
+            _branch_map = {
+                "CSE-AIML": "CSE-AIML", "CSE AIML": "CSE-AIML", "AIML": "CSE-AIML",
+                "AI&ML": "CSE-AIML", "AI ML": "CSE-AIML",
+                "COMPUTER SCIENCE": "CSE", "CSE": "CSE",
+                "ELECTRONICS": "ECE", "ECE": "ECE",
+                "ELECTRICAL": "EEE", "EEE": "EEE",
+                "INFORMATION TECHNOLOGY": "IT", "IT": "IT",
+            }
+            _norm_branch = _branch_map.get(_raw_branch, _raw_branch)
+            _profile["branch_interest"] = _norm_branch
+            _profile["user_id"] = uid
+            st.session_state.profile = _profile
+            save_profile(_profile)
+            _declaration_reply_parts.append(
+                f"Noted! I'll remember you're interested in **{_norm_branch}**."
+            )
+
+        if _declaration_reply_parts:
+            _decl_reply = " ".join(_declaration_reply_parts) + (
+                " Feel free to ask me anything about BVRIT Hyderabad!"
+            )
+            st.markdown(_decl_reply)
+            st.session_state.messages.append(make_assistant_turn(_decl_reply, [], False, 0.0))
+            st.rerun()
+
+        # ── Detect "asking what their saved name/branch is" (recall question) ──
+        _asking_name = any(p in _lower_prompt for p in [
+            "what is my name", "what's my name", "do you know my name",
+            "remember my name", "who am i", "tell me my name", "my name?",
+        ])
+        _asking_branch = any(p in _lower_prompt for p in [
+            "what is my branch", "what's my branch", "what branch am i",
+            "which branch am i", "remember my branch", "my branch?",
+        ])
+        if _asking_name or _asking_branch:
+            parts = []
+            if _asking_name:
+                if _profile.get("name"):
+                    parts.append(f"Your name is **{_profile['name']}**.")
+                else:
+                    parts.append("I don't have your name saved yet — just tell me and I'll remember it!")
+            if _asking_branch:
+                if _profile.get("branch_interest"):
+                    parts.append(f"Your branch of interest is **{_profile['branch_interest']}**.")
+                else:
+                    parts.append("I don't have your branch preference saved yet — just tell me!")
+            _recall_reply = " ".join(parts)
+            st.markdown(_recall_reply)
+            st.session_state.messages.append(make_assistant_turn(_recall_reply, [], False, 0.0))
+            st.rerun()
 
         # ── Normal RAG query ───────────────────────────────────────────────
         with st.spinner("Retrieving and generating answer…"):
             start = time.time()
             try:
+                # ── Layer 1+2: Build clean history for LLM (with summary if applicable) ──
+                llm_history = get_llm_history_with_summary(st.session_state.messages[:-1])
+
+                # ── Layer 4: Build personalization prefix and inject into question ──
+                persona_prefix = build_personalization_prefix(st.session_state.profile)
+
+                # We inject personalization into the question so run_rag_pipeline
+                # sees it in its system prompt via chat_history's first assistant slot.
+                # Alternatively: modify rag_pipeline to accept a system_prefix kwarg.
+                # Here we prepend to the first system message via the history trick:
+                # Add a "virtual" system message as first assistant turn when profile exists.
+                if persona_prefix:
+                    persona_turn = {
+                        "role": "assistant",
+                        "content": f"[PERSONALIZATION CONTEXT]\n{persona_prefix}",
+                    }
+                    llm_history = [persona_turn] + llm_history
+
                 response, citations, refused = run_rag_pipeline(
                     question=prompt,
-                    chat_history=st.session_state.messages[:-1],
+                    chat_history=llm_history,
                     top_k=top_k,
                     section_filter=section_filter,
                 )
@@ -527,14 +1064,28 @@ if prompt := st.chat_input("Ask about BVRITH…"):
             st.warning("⚠️ This answer was outside my knowledge base — I directed you to the college directly.", icon="⚠️")
         st.caption(f"⏱ {elapsed:.2f}s")
 
-    # Persist in session state
+    # ── Layer 1: Persist clean assistant turn ────────────────────────────
     st.session_state.messages.append(
-        {
-            "role": "assistant",
-            "content": response,
-            "citations": citations,
-            "refused": refused,
-            "elapsed": elapsed,
-            "images": images,
-        }
+        make_assistant_turn(response, citations, refused, elapsed, images)
     )
+
+    # ── Layer 2: Maybe compress old turns into a summary ─────────────────
+    st.session_state.messages = maybe_summarize(st.session_state.messages)
+
+    # ── Layer 3+4: Update user profile whenever the user mentions personal info ──
+    # Check every turn (not just every 5th) so name/branch are never lost if
+    # the user closes the tab before reaching turn 5.
+    PERSONAL_TRIGGERS = [
+        "my name is", "i am ", "i'm ", "call me", "my branch", "i prefer",
+        "i want", "i like", "my interest", "interested in", "studying",
+        "i study", "tell me in", "brief", "detailed",
+    ]
+    should_update = any(t in prompt.lower() for t in PERSONAL_TRIGGERS)
+    user_turn_count = sum(1 for m in st.session_state.messages if m.get("role") == "user")
+    # Also update every 5 turns as a catch-all
+    if should_update or (user_turn_count > 0 and user_turn_count % 5 == 0):
+        st.session_state.profile = extract_and_update_profile(
+            st.session_state.messages, st.session_state.profile
+        )
+        st.session_state.profile["user_id"] = uid
+        save_profile(st.session_state.profile)

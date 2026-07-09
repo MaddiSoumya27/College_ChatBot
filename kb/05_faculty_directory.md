@@ -124,8 +124,10 @@ graduating batch, not the overall college average — use with that context.)
   design, and image processing — full roster in source PDF.
 
 ### Computer Science and Engineering (CSE)
-- **Dr. Aruna Rao S.L** — Professor & Head, Ph.D. (guided by Principal Dr. K.V.N. Sunitha,
-  JNTUH), 22 yrs experience, 3 books, 11 patents.
+- **Dr. Aruna Rao S.L** — Professor & HOD (Head of Department), CSE Department Head, Ph.D.
+  (guided by Principal Dr. K.V.N. Sunitha, JNTUH), 22 yrs experience, 3 books, 11 patents.
+  Note: Dr. Aruna Rao S.L is the Head of the CSE Department. She is NOT the Principal.
+  The Principal of the college is Dr. K.V.N. Sunitha (a separate role).
 - Prof. R S Murali Nath — Professor I/C Accreditations, 28 yrs experience.
 - Dr. Ganti Naga Satish — Professor, Ph.D., 20 yrs experience, author of multiple published
   textbooks (R Programming, Python Programming, Data Analytics, Software Engineering, etc.),

@@ -1,0 +1,110 @@
+# Prompt for kiro-cli — Add Memory Layers to BVRITH Chatbot
+
+
+## PROMPT START
+
+I'm building a RAG-powered college FAQ chatbot for BVRIT HYDERABAD College of Engineering
+for Women. It's a Python + Streamlit app using LangChain, ChromaDB, and an LLM (Anthropic
+Claude / OpenAI, via API) for grounded generation with citations. The RAG pipeline
+(chunking, retrieval, grounded generation with citations, refusal on out-of-scope
+questions) already works. I now need you to add five progressive memory layers on top of
+it, in order, without changing how retrieval or citation generation works.
+
+### Current project structure (adjust to match reality)
+```
+bvrith_chatbot/
+├── app.py                  # Streamlit entrypoint, chat UI
+├── rag_pipeline.py         # retriever, grounding prompt, generation call
+├── ingest.py                # chunking + embedding + Chroma indexing
+├── bvrith_chroma_db/        # persisted vector store
+└── requirements.txt
+```
+
+### Constraints
+- Keep retrieval and the grounding/citation logic untouched — memory should only affect
+  what goes into the message history and the system prompt, not how chunks are retrieved
+  or how citations are generated.
+- Use SQLite for persistent storage (not a flat JSON file) so it's easy to add expiry later.
+- All new code should be modular — put memory logic in a new `memory.py` module, not
+  scattered inline in `app.py`.
+- Write docstrings and inline comments explaining each function's role in the memory
+  architecture (short-term / medium-term / long-term / personalization / privacy).
+- After each exercise, add a short section to a `MEMORY_NOTES.md` file recording: what was
+  implemented, how it was tested, and the actual test output/results — I need this for a
+  lab report.
+
+### Build these five features, in order
+
+**1. Short-term memory (fix multi-turn failures)**
+Maintain a `st.session_state.messages` list that grows with every user+assistant turn and
+is sent in full on every API call. Store the *clean* user question in history (not the
+question with the retrieved-context block glued on) — only inject retrieved context into
+the current turn's message, so history doesn't balloon with repeated context blocks.
+Test with this exact 5-turn script and log every response into `MEMORY_NOTES.md`:
+1. "What B.Tech branches does BVRIT offer?"
+2. "Tell me more about the first one."
+3. "What's the fee for that branch?"
+4. "My name is Priya."
+5. "What's my name and which branch was I asking about?"
+Pass criteria: turn 2 must resolve to CSE (the first branch listed), turn 3 must give CSE's
+fee, turn 5 must correctly recall "Priya" and "CSE" from history alone.
+
+**2. Medium-term memory (summarize long conversations)**
+After every 10 turns, summarize everything older than the most recent 10 turns into one
+paragraph via an LLM call, and replace the old turns in `st.session_state.messages` with
+that single summary turn. The summary must preserve: the user's name (if stated), which
+branches/topics were discussed, specific facts already given (exact fee amounts, dates,
+package figures), any stated preferences, and any unresolved follow-up questions. Simulate
+a 20+ question conversation spanning departments, fees, placements, hostel, and faculty
+topics, and log to `MEMORY_NOTES.md`: (a) the turn number where answers started degrading
+without summarization, and (b) input token count at turn 20 with vs without summarization
+enabled (use the API response's usage/token count field).
+
+**3. Long-term memory (persistent profiles across sessions)**
+Design and implement a SQLite-backed user profile store keyed by a `user_id`. Profile
+schema: `name`, `branch_interest`, `language_preference`, `detail_level`,
+`topics_discussed` (list), `last_session_summary`, `created_at`, `last_accessed`. Load the
+profile at session start and inject relevant fields into the system prompt naturally (not
+as a verbatim dump the bot repeats back). Update the profile at the end of each session (or
+periodically) by extracting new facts via an LLM call. Test: in one process run, create a
+profile via "My name is Priya and I'm interested in B.Tech CSE" + "I prefer detailed
+answers in English"; restart the process entirely; in the new run, ask "What's the fee for
+the branch I'm interested in?" and "What's my name?" — both must resolve correctly from the
+persisted profile, not from any in-memory state (which won't exist after restart).
+
+**4. Personalization (adapt tone/scope per user)**
+Create two test profiles: Priya (CSE, detailed answers, English) and Rahul (EEE, brief
+answers, bullet-point format — use EEE not Mechanical, since BVRITH doesn't offer a
+Mechanical Engineering program and the grounded chatbot should never invent one). Add
+explicit style-adaptation instructions to the system prompt template (detail_level →
+paragraph vs brief/bullets; always resolve "my branch" to the user's stored
+branch_interest without asking them to restate it). Ask both users "Tell me about my
+branch" and "What's the total 4-year cost?" and log both full system prompts and both sets
+of responses side by side in `MEMORY_NOTES.md` for comparison.
+
+**5. Privacy — right to be forgotten**
+For each profile field, classify it as ESSENTIAL / NICE-TO-HAVE / SENSITIVE in
+`MEMORY_NOTES.md` (name and any transcript/scholarship/financial-adjacent fields should be
+SENSITIVE; branch/language/detail-level preferences are NICE-TO-HAVE). Implement:
+- a "clear my data" chat command that deletes the user's SQLite row and resets session state,
+  with a confirmation message to the user
+- an auto-expire job that deletes any profile not accessed in 30 days (run it on app
+  startup at minimum; note in `MEMORY_NOTES.md` that a real deployment should run this on a
+  schedule, not just on-startup)
+- a short 3-4 sentence privacy notice shown on first interaction explaining what's
+  remembered, why, and how to delete it
+Test: create a profile, confirm personalization works, send "clear my data", confirm
+deletion, start a fresh session with the same user_id, and confirm the bot treats them as
+brand new (no name/branch pre-filled).
+
+### Deliverables
+1. `memory.py` — all memory logic (short-term helpers, summarization, SQLite profile
+   store, personalization prompt builder, clear/expire functions)
+2. Updated `app.py` wiring these into the existing Streamlit chat loop
+3. `MEMORY_NOTES.md` with test logs/results for all five exercises as described above
+4. Any new dependencies added to `requirements.txt`
+
+Work through the five exercises in order, running the specified tests after each one before
+moving to the next, since Exercises 2-5 build on state from earlier ones.
+
+## PROMPT END

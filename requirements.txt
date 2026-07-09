@@ -9,3 +9,5 @@ docx2txt==0.8
 streamlit==1.36.0
 ragas==0.1.14
 datasets==2.20.0
+# Memory layers (Layer 3): SQLite is built into Python stdlib — no extra package needed.
+# uuid is also stdlib. No new pip dependencies required for memory.py.
