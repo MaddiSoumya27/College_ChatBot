@@ -570,7 +570,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     page = st.radio(
         "Navigate",
-        ["💬 Chat", "📊 Dashboard"],
+        ["💬 Chat", "📊 Dashboard", "🔍 Observability"],
         label_visibility="collapsed",
     )
 
@@ -763,6 +763,182 @@ if page == "📊 Dashboard":
         with open(md_file, encoding="utf-8") as f:
             dl2.download_button("⬇️ Download Markdown report", f.read(),
                                 file_name="eval_report.md", mime="text/markdown")
+
+    st.stop()  # don't render the chat page below
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# OBSERVABILITY PAGE
+# ══════════════════════════════════════════════════════════════════════════════
+if page == "🔍 Observability":
+    from observability import (
+        get_session_logs, compute_session_stats, check_alerts,
+        LATENCY_ALERT_THRESHOLD, COST_ALERT_THRESHOLD,
+        ERROR_RATE_ALERT_THRESHOLD, LOG_FILE,
+    )
+
+    st.title("🔍 Observability Dashboard")
+    st.caption("Live telemetry for every LLM call — latency, cost, token usage, errors, and A/B prompt tracking.")
+
+    # ── Load persistent logs ──────────────────────────────────────────────
+    persistent_logs: list[dict] = []
+    if LOG_FILE.exists():
+        with LOG_FILE.open(encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line:
+                    try:
+                        persistent_logs.append(json.loads(_line))
+                    except json.JSONDecodeError:
+                        pass
+
+    session_logs = get_session_logs()
+
+    # Merge: persistent is the full history; session is this run's subset
+    all_logs = persistent_logs  # persistent already includes session writes
+
+    if not all_logs:
+        st.info(
+            "No telemetry recorded yet. Start a conversation on the **💬 Chat** page "
+            "and logs will appear here automatically.",
+            icon="ℹ️",
+        )
+        st.stop()
+
+    # ── Summary metrics ────────────────────────────────────────────────────
+    st.subheader("📈 Summary Metrics")
+    stats = compute_session_stats(all_logs)
+
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1.metric("Total Calls",   stats["total_queries"])
+    m2.metric("Avg Latency",   f"{stats['avg_latency']:.2f}s")
+    m3.metric("P95 Latency",   f"{stats['p95_latency']:.2f}s")
+    m4.metric("Total Cost",    f"${stats['total_cost']:.4f}")
+    m5.metric("Total Tokens",  f"{stats['total_tokens']:,}")
+    m6.metric("Errors",        stats["error_count"],
+              delta=None if stats["error_count"] == 0 else f"{stats['error_count']} failure(s)")
+
+    # ── Active alerts ──────────────────────────────────────────────────────
+    last_entry = all_logs[-1] if all_logs else None
+    active_alerts = check_alerts(last_entry=last_entry, logs=all_logs)
+    if active_alerts:
+        st.divider()
+        st.subheader("🚨 Active Alerts")
+        for alert in active_alerts:
+            st.warning(alert)
+    else:
+        st.success("✅ No active alerts — all thresholds within range.", icon="✅")
+
+    st.divider()
+
+    # ── Threshold reference ────────────────────────────────────────────────
+    with st.expander("⚙️ Alert Thresholds", expanded=False):
+        t1, t2, t3 = st.columns(3)
+        t1.metric("Latency Threshold",    f"{LATENCY_ALERT_THRESHOLD}s")
+        t2.metric("Cost Threshold",       f"${COST_ALERT_THRESHOLD:.2f}")
+        t3.metric("Error Rate Threshold", f"{ERROR_RATE_ALERT_THRESHOLD*100:.0f}%")
+
+    # ── Call type breakdown ────────────────────────────────────────────────
+    st.subheader("📊 Calls by Type")
+    type_counts: dict[str, int] = {}
+    type_costs:  dict[str, float] = {}
+    for entry in all_logs:
+        ct = entry.get("call_type", "unknown")
+        type_counts[ct] = type_counts.get(ct, 0) + 1
+        type_costs[ct]  = type_costs.get(ct, 0.0) + entry.get("estimated_cost_usd", 0.0)
+
+    if type_counts:
+        tc_df = pd.DataFrame([
+            {
+                "Call Type":  ct,
+                "Count":      type_counts[ct],
+                "Total Cost": f"${type_costs[ct]:.5f}",
+                "Avg Cost":   f"${type_costs[ct]/type_counts[ct]:.5f}",
+            }
+            for ct in sorted(type_counts, key=lambda k: type_counts[k], reverse=True)
+        ])
+        st.dataframe(tc_df, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ── A/B Prompt experiment ──────────────────────────────────────────────
+    st.subheader("🧪 A/B Prompt Experiment")
+    ab_logs = [e for e in all_logs if e.get("prompt_version") in ("A", "B")]
+    if ab_logs:
+        ab_a = [e for e in ab_logs if e.get("prompt_version") == "A"]
+        ab_b = [e for e in ab_logs if e.get("prompt_version") == "B"]
+
+        a_lats = [e["latency_seconds"] for e in ab_a]
+        b_lats = [e["latency_seconds"] for e in ab_b]
+        a_costs = [e["estimated_cost_usd"] for e in ab_a]
+        b_costs = [e["estimated_cost_usd"] for e in ab_b]
+
+        ab1, ab2 = st.columns(2)
+        with ab1:
+            st.markdown("**Version A (Baseline)**")
+            st.metric("Calls",       len(ab_a))
+            st.metric("Avg Latency", f"{(sum(a_lats)/len(a_lats)):.2f}s" if a_lats else "—")
+            st.metric("Avg Cost",    f"${(sum(a_costs)/len(a_costs)):.5f}" if a_costs else "—")
+        with ab2:
+            st.markdown("**Version B (Strict grounding)**")
+            st.metric("Calls",       len(ab_b))
+            st.metric("Avg Latency", f"{(sum(b_lats)/len(b_lats)):.2f}s" if b_lats else "—")
+            st.metric("Avg Cost",    f"${(sum(b_costs)/len(b_costs)):.5f}" if b_costs else "—")
+    else:
+        st.info("No A/B prompt data recorded yet. Calls appear after chatting on the Chat page.", icon="🧪")
+
+    st.divider()
+
+    # ── Recent call log table ──────────────────────────────────────────────
+    st.subheader("📋 Recent Call Log")
+
+    # Filter controls
+    fc1, fc2, fc3 = st.columns([2, 2, 1])
+    all_types   = ["All"] + sorted({e.get("call_type","unknown") for e in all_logs})
+    all_status  = ["All", "success", "failure", "rejected_input"]
+    sel_type    = fc1.selectbox("Filter by call type", all_types,    key="obs_type")
+    sel_status  = fc2.selectbox("Filter by status",    all_status,   key="obs_status")
+    n_rows      = fc3.number_input("Rows", min_value=10, max_value=500, value=50, step=10)
+
+    filtered_logs = list(reversed(all_logs))  # most recent first
+    if sel_type != "All":
+        filtered_logs = [e for e in filtered_logs if e.get("call_type") == sel_type]
+    if sel_status != "All":
+        filtered_logs = [e for e in filtered_logs if e.get("status") == sel_status]
+    filtered_logs = filtered_logs[:int(n_rows)]
+
+    log_rows = []
+    for e in filtered_logs:
+        ts = e.get("timestamp", "")[:19].replace("T", " ")
+        log_rows.append({
+            "Timestamp":   ts,
+            "Type":        e.get("call_type", "?"),
+            "Model":       e.get("model", "?"),
+            "Status":      {"success": "✅", "failure": "❌", "rejected_input": "🚫"}.get(
+                               e.get("status",""), e.get("status","")),
+            "Latency (s)": round(e.get("latency_seconds", 0), 3),
+            "In Tokens":   e.get("input_tokens", 0),
+            "Out Tokens":  e.get("output_tokens", 0),
+            "Cost ($)":    f"{e.get('estimated_cost_usd', 0):.6f}",
+            "Prompt Ver":  e.get("prompt_version") or "—",
+        })
+
+    if log_rows:
+        st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("No entries match the selected filters.")
+
+    # ── Download raw log ───────────────────────────────────────────────────
+    st.divider()
+    if LOG_FILE.exists():
+        with LOG_FILE.open(encoding="utf-8") as _f:
+            raw_jsonl = _f.read()
+        st.download_button(
+            "⬇️ Download full JSONL log",
+            data=raw_jsonl,
+            file_name="bvrith_chatbot.jsonl",
+            mime="application/jsonl",
+        )
 
     st.stop()  # don't render the chat page below
 
