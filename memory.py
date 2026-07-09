@@ -35,6 +35,9 @@ from typing import Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
+# ── Observability: route all LLM calls through the logging wrapper ─────────────
+from observability import logged_llm_call
+
 # ── Config ─────────────────────────────────────────────────────────────────────
 DB_PATH          = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_profiles.db")
 SUMMARIZE_EVERY  = 10   # compress history after this many total turns
@@ -249,7 +252,11 @@ def _summarize_old_turns(old_turns: list[dict], llm: ChatOpenAI) -> str:
         "Summary paragraph:"
     )
     try:
-        resp = llm.invoke([HumanMessage(content=prompt)])
+        resp = logged_llm_call(
+            llm.invoke,
+            "summarization",
+            input=[HumanMessage(content=prompt)],
+        )
         return resp.content.strip()
     except Exception as e:
         logger.warning(f"Summarization LLM call failed: {e}")
@@ -371,7 +378,11 @@ def extract_and_update_profile(messages: list[dict], profile: dict) -> dict:
 
     try:
         llm = _build_llm()
-        resp = llm.invoke([HumanMessage(content=prompt)])
+        resp = logged_llm_call(
+            llm.invoke,
+            "profile_extraction",
+            input=[HumanMessage(content=prompt)],
+        )
         raw = resp.content.strip()
         # Strip markdown code fences if present
         if raw.startswith("```"):

@@ -1,0 +1,524 @@
+"""
+app.py
+------
+Phase 4: Streamlit Chat UI for BVRIT Hyderabad RAG Chatbot.
+Updated: Wired with all five memory layers from memory.py.
+
+Run:  streamlit run app.py
+"""
+
+import os
+import json
+import time
+
+import pandas as pd
+import streamlit as st
+from dotenv import load_dotenv
+load_dotenv()
+
+# ── Ensure working directory is the script's own folder ──────────────────────
+# This fixes issues when Streamlit is launched from a different directory
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+from rag_pipeline import run_rag_pipeline, get_vectorstore, reset_vectorstore
+
+# ── Observability layer (Exercise 1-4) ────────────────────────────────────────
+from observability import (
+    get_session_logs,
+    compute_session_stats,
+    validate_input,
+    log_rejected_input,
+    check_alerts,
+    assign_prompt_version,
+)
+
+# ── Memory layers ─────────────────────────────────────────────────────────────
+from memory import (
+    # Layer 1 — Short-term
+    make_user_turn, make_assistant_turn, get_llm_history,
+    # Layer 2 — Medium-term
+    maybe_summarize, get_llm_history_with_summary,
+    # Layer 3 — Long-term
+    init_db, load_profile, save_profile, extract_and_update_profile,
+    # Layer 4 — Personalization
+    build_personalization_prefix,
+    # Layer 5 — Privacy
+    expire_old_profiles, is_clear_data_command, handle_clear_data,
+    get_or_create_user_id, PRIVACY_NOTICE,
+)
+
+# ── One-time startup tasks ────────────────────────────────────────────────────
+init_db()           # ensure SQLite table exists
+expire_old_profiles()  # Layer 5: remove profiles idle > 30 days
+
+# ── Image gallery — keyword → list of (caption, url) ─────────────────────────
+# All URLs verified from bvrithyderabad.edu.in official site
+BASE = "https://bvrithyderabad.edu.in/wp-content/uploads"
+COLLEGE_IMAGES: dict[str, list[tuple[str, str]]] = {
+    "campus": [
+        ("Welcome to BVRIT Hyderabad", f"{BASE}/2026/01/WelcomeBVRITH.jpg"),
+        ("APJ Block — Main Entrance", f"{BASE}/2026/01/ApjIngate.jpg"),
+        ("SMB Block", f"{BASE}/2026/01/SMB1.jpg"),
+        ("CSE — Sita Block", f"{BASE}/2026/01/CSE-SITA-BLOCK1.jpg"),
+        ("Memorial Hall", f"{BASE}/2026/01/MemorialHall1.jpg"),
+        ("Home slider — Campus view", f"{BASE}/2023/04/home-slider-6-bvrit-hyderabad-engineering-women-college.webp"),
+    ],
+    "lab": [
+        ("Drone Technology Laboratory", f"{BASE}/2023/06/DroneBannerImage.jpg"),
+        ("DTL — Top view", f"{BASE}/2023/06/DTL-top-image-1.jpeg"),
+        ("DTL — Scrolling view", f"{BASE}/2023/06/Scrolling-image-1-DTL.jpeg"),
+    ],
+    "placement": [
+        ("Google Placements", f"{BASE}/2026/02/GooglePlacements.jpeg"),
+        ("Accenture Placements", f"{BASE}/2023/04/accenture-placement-bvrit-hyderabad-engineering-women-college.webp"),
+        ("Amazon Placements", f"{BASE}/2023/04/amazon-placement-bvrit-hyderabad-engineering-women-college.webp"),
+        ("Flipkart Placements", f"{BASE}/2023/04/flipkart-placement-bvrit-hyderabad-engineering-women-college.webp"),
+        ("Infosys Placements", f"{BASE}/2023/04/infosys-placement-bvrit-hyderabad-engineering-women-college.webp"),
+    ],
+    "event": [
+        ("Synergia 2026 — Tech & Cultural Fest", f"{BASE}/2026/04/Synergia-26.jpg"),
+        ("Annual Day 2026", f"{BASE}/2026/04/annualday1.jpg"),
+        ("Graduation Day 2025", f"{BASE}/2025/11/Graduation-Day-2025.jpg"),
+        ("TedX at BVRIT Hyderabad", f"{BASE}/2026/02/TedX.jpg"),
+        ("Milan 2026", f"{BASE}/2026/03/Milan2026.jpg"),
+    ],
+    "research": [
+        ("IIC — Innovation Council", f"{BASE}/2023/06/IIC-1024x682-1.jpg"),
+        ("EDC — Entrepreneurship Cell", f"{BASE}/2023/06/EDCImage1-1024x768-1.jpg"),
+        ("SIH 2025 Winners", f"{BASE}/2025/12/SIH-2025-winners-1.jpg"),
+    ],
+    "nss": [
+        ("NSS — First Aid Training", f"{BASE}/2023/06/NSS-FirstAidTraining.jpg"),
+        ("NSS — Go Green Rally", f"{BASE}/2023/06/NSS-GoGreenRally.jpg"),
+    ],
+    "principal": [
+        ("Dr. K.V.N. Sunitha — Principal Award", f"{BASE}/2021/09/Principal-Award-copy.jpg"),
+        ("CSI Award — Best Supporting Principal", f"{BASE}/2025/06/csiAward.jpg"),
+    ],
+    "management": [
+        ("Chairman — Sri K.V. Vishnu Raju", f"{BASE}/2025/09/Chairman-Sir.jpg"),
+        ("Vice Chairman", f"{BASE}/2025/09/VC-Sir.jpg"),
+    ],
+    "yoga": [
+        ("Yoga at BVRIT Hyderabad", f"{BASE}/2023/05/yoga-7-bvrith-image-bvrit-hyderabad-engineering-women-college.webp"),
+    ],
+    "general": [
+        ("Welcome to BVRIT Hyderabad", f"{BASE}/2026/01/WelcomeBVRITH.jpg"),
+        ("APJ Block — Main Entrance", f"{BASE}/2026/01/ApjIngate.jpg"),
+        ("Synergia 2026 Fest", f"{BASE}/2026/04/Synergia-26.jpg"),
+        ("Home section", f"{BASE}/2023/04/home-section-img2-bvrit-hyderabad-engineering-women-college.webp"),
+    ],
+}
+
+# Keywords that map user query words to image categories
+IMAGE_KEYWORD_MAP = {
+    "campus":     ["campus", "college", "building", "outside", "front", "entrance", "block", "infrastructure"],
+    "lab":        ["lab", "laboratory", "drone", "iot", "maker space", "practical", "dtl"],
+    "placement":  ["placement", "tap cell", "recruitment", "recruiter", "job", "accenture", "amazon", "google", "flipkart"],
+    "event":      ["event", "fest", "synergia", "annual day", "graduation", "tedx", "milan", "cultural"],
+    "research":   ["research", "innovation", "iic", "edc", "sih", "hackathon", "startup"],
+    "nss":        ["nss", "community", "social", "outreach", "rally", "volunteer"],
+    "principal":  ["principal", "dr sunitha", "kvn", "hod", "director"],
+    "management": ["chairman", "management", "vice chairman", "secretary", "leadership"],
+    "yoga":       ["yoga", "fitness", "wellness", "sports", "gym"],
+}
+
+IMAGE_REQUEST_KEYWORDS = [
+    "show", "image", "photo", "picture", "pic", "look like",
+    "what does", "how does", "view", "see", "gallery", "visual", "photos"
+]
+
+IMAGE_ONLY_RESPONSE = (
+    "Here are some photos from BVRIT Hyderabad College. "
+    "You can find more on the official website at "
+    "[bvrithyderabad.edu.in](https://bvrithyderabad.edu.in/gallery/)."
+)
+
+
+def detect_image_request(text: str) -> list[tuple[str, str]]:
+    """
+    If the user is asking for images, return matching (caption, url) pairs.
+    Returns empty list if not an image request.
+    """
+    lower = text.lower()
+    if not any(kw in lower for kw in IMAGE_REQUEST_KEYWORDS):
+        return []
+
+    matched_images = []
+    for category, triggers in IMAGE_KEYWORD_MAP.items():
+        if any(t in lower for t in triggers):
+            matched_images.extend(COLLEGE_IMAGES.get(category, []))
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique = []
+    for item in matched_images:
+        if item[1] not in seen:
+            seen.add(item[1])
+            unique.append(item)
+
+    return unique if unique else COLLEGE_IMAGES["general"]
+
+
+def is_image_only_request(text: str) -> bool:
+    """
+    Returns True if the query is purely asking for images with no
+    informational content needed (e.g. 'show me campus photos').
+    """
+    lower = text.lower()
+    has_image_kw = any(kw in lower for kw in IMAGE_REQUEST_KEYWORDS)
+    # If it also has an informational word, let the RAG pipeline handle it too
+    info_keywords = ["fee", "admission", "department", "faculty",
+                     "contact", "hostel", "transport", "course", "program",
+                     "rank", "cutoff", "naac", "nba", "about"]
+    has_info_kw = any(kw in lower for kw in info_keywords)
+    return has_image_kw and not has_info_kw
+
+# ── Page config ───────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="BVRIT Hyderabad — Info Assistant",
+    page_icon="🎓",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ── UI Theme ─────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* Global font */
+html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
+
+/* App background */
+.stApp { background: #f0f4ff !important; }
+
+/* Hide chrome */
+#MainMenu, footer, header { visibility: hidden !important; }
+
+/* ── SIDEBAR ── */
+section[data-testid="stSidebar"] {
+    background: #0a1f44 !important;
+}
+section[data-testid="stSidebar"] .stMarkdown p,
+section[data-testid="stSidebar"] .stMarkdown div,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] .stSlider label,
+section[data-testid="stSidebar"] .stSelectbox label,
+section[data-testid="stSidebar"] .stRadio label,
+section[data-testid="stSidebar"] p {
+    color: #e0eaff !important;
+}
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {
+    color: #f5d060 !important;
+}
+section[data-testid="stSidebar"] hr {
+    border-color: rgba(201,168,76,0.3) !important;
+}
+
+/* Sidebar buttons */
+section[data-testid="stSidebar"] .stButton button {
+    background-color: #1e4a9e !important;
+    color: #ffffff !important;
+    border: 1px solid #3a6dd8 !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    width: 100% !important;
+    padding: 0.45rem 0.8rem !important;
+}
+section[data-testid="stSidebar"] .stButton button:hover {
+    background-color: #2e5ec0 !important;
+    color: #ffffff !important;
+    border-color: #5080e0 !important;
+}
+
+/* Sidebar metric text */
+section[data-testid="stSidebar"] [data-testid="stMetricValue"] > div {
+    color: #ffffff !important;
+    font-weight: 700 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stMetricLabel"] > div {
+    color: #a0c0e8 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stMetricDelta"] > div {
+    color: #4ade80 !important;
+}
+
+/* Sidebar selectbox box */
+section[data-testid="stSidebar"] [data-baseweb="select"] {
+    background-color: #16305a !important;
+    border-color: #3a5a9a !important;
+}
+section[data-testid="stSidebar"] [data-baseweb="select"] *,
+section[data-testid="stSidebar"] [data-baseweb="select"] span {
+    color: #ffffff !important;
+}
+/* Dropdown arrow — force visible gold colour */
+section[data-testid="stSidebar"] [data-baseweb="select"] svg,
+section[data-testid="stSidebar"] [data-baseweb="select"] [data-testid="stSelectboxArrow"],
+section[data-testid="stSidebar"] [data-baseweb="select"] [aria-label*="open"] svg {
+    fill: #f5d060 !important;
+    color: #f5d060 !important;
+    stroke: #f5d060 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    width: 16px !important;
+    height: 16px !important;
+}
+
+/* Slider thumb — bigger and clearly visible */
+section[data-testid="stSidebar"] [data-baseweb="slider"] [role="slider"] {
+    background: #f5d060 !important;
+    border: 3px solid #ffffff !important;
+    width: 18px !important;
+    height: 18px !important;
+    box-shadow: 0 0 6px rgba(245, 208, 96, 0.6) !important;
+}
+/* Slider filled track */
+section[data-testid="stSidebar"] [data-baseweb="slider"] [data-testid="stSlider"] div[role="progressbar"],
+section[data-testid="stSidebar"] [data-baseweb="slider"] div[class*="Track"] div:first-child {
+    background: #f5d060 !important;
+}
+/* Slider step buttons (+ / -) */
+section[data-testid="stSidebar"] [data-testid="stSlider"] button,
+section[data-testid="stSidebar"] button[kind="secondary"] {
+    color: #ffffff !important;
+    background: #1e4a9e !important;
+    border: 1px solid #3a6dd8 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+section[data-testid="stSidebar"] [data-testid="stTickBarMin"],
+section[data-testid="stSidebar"] [data-testid="stTickBarMax"] {
+    color: #c0d4f0 !important;
+    font-weight: 600 !important;
+}
+
+/* Caption in sidebar */
+section[data-testid="stSidebar"] small,
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+    color: #7a9abf !important;
+}
+
+/* ── HEADER BANNER ── */
+.bvrit-header {
+    background: #0a1f44;
+    border-left: 5px solid #c9a84c;
+    border-radius: 10px;
+    padding: 1.2rem 1.8rem;
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 4px 20px rgba(10,31,68,0.2);
+}
+.bvrit-header-logo { font-size: 2.5rem; line-height: 1; }
+.bvrit-header-text h1 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #f5d060;
+}
+.bvrit-header-text p {
+    margin: 0.2rem 0 0 0;
+    font-size: 0.75rem;
+    color: #c0c8e0;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.bvrit-header-badge {
+    margin-left: auto;
+    background: rgba(201,168,76,0.15);
+    border: 1.5px solid #c9a84c;
+    border-radius: 20px;
+    padding: 0.25rem 0.8rem;
+    font-size: 0.68rem;
+    color: #f5d060;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+/* ── CHAT MESSAGES ── */
+div[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    background: #dce8ff !important;
+    border-left: 4px solid #3a6dd8 !important;
+    border-radius: 10px !important;
+}
+div[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
+    background: #fff8e6 !important;
+    border-left: 4px solid #c9a84c !important;
+    border-radius: 10px !important;
+}
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] li,
+[data-testid="stChatMessage"] span {
+    color: #0a1f44 !important;
+}
+
+/* ── CHAT INPUT ── */
+[data-testid="stChatInput"] textarea {
+    background: #ffffff !important;
+    color: #0a1f44 !important;
+    border: 1.5px solid #a0b8e8 !important;
+    border-radius: 10px !important;
+}
+[data-testid="stChatInput"] textarea::placeholder { color: #6080b0 !important; }
+[data-testid="stChatInput"] textarea:focus {
+    border-color: #3a6dd8 !important;
+    box-shadow: 0 0 0 3px rgba(58,109,216,0.15) !important;
+}
+/* Send button */
+[data-testid="stChatInput"] button {
+    background: #0a1f44 !important;
+    border-radius: 8px !important;
+    border: none !important;
+}
+[data-testid="stChatInput"] button svg {
+    fill: #f5d060 !important;
+    color: #f5d060 !important;
+    stroke: #f5d060 !important;
+}
+[data-testid="stChatInput"] button:hover {
+    background: #1e3a7a !important;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 10px !important; height: 10px !important; }
+::-webkit-scrollbar-track { 
+    background: #e0e8f0 !important; 
+    border-radius: 4px !important; 
+}
+::-webkit-scrollbar-thumb { 
+    background: #3a6dd8 !important; 
+    border-radius: 4px !important;
+    border: 2px solid #e0e8f0 !important;
+}
+::-webkit-scrollbar-thumb:hover { 
+    background: #1a4a9e !important; 
+}
+::-webkit-scrollbar-corner {
+    background: #e0e8f0 !important;
+}
+
+/* Firefox scrollbar */
+* {
+    scrollbar-width: thin !important;
+    scrollbar-color: #3a6dd8 #e0e8f0 !important;
+}
+
+/* ── PROGRESS BAR ── */
+[data-testid="stProgressBar"] > div > div {
+    background: linear-gradient(90deg, #1a3a8e, #3a6dd8) !important;
+    border-radius: 4px !important;
+}
+
+/* ── METRIC (main area) ── */
+[data-testid="stMetric"] {
+    background: #ffffff !important;
+    border: 1px solid #c0d0f0 !important;
+    border-radius: 10px !important;
+    padding: 0.7rem 1rem !important;
+}
+[data-testid="stMetricLabel"] > div { color: #4a5e8a !important; font-size: 0.72rem !important; }
+[data-testid="stMetricValue"] > div { color: #0a1f44 !important; font-weight: 700 !important; }
+
+/* ── ALERTS ── */
+.stAlert { border-radius: 8px !important; }
+
+/* Dividers */
+hr { border-color: #c0d0f0 !important; }
+
+/* ── EXPANDER / ACCORDION ARROWS ── */
+[data-testid="stExpander"] summary svg,
+details summary svg,
+button[kind="header"] svg {
+    fill: #0a1f44 !important;
+    color: #0a1f44 !important;
+    stroke: #0a1f44 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    width: 18px !important;
+    height: 18px !important;
+}
+[data-testid="stExpander"] summary:hover svg {
+    fill: #3a6dd8 !important;
+}
+
+/* ── MAIN AREA BUTTONS ── */
+.stButton > button {
+    background-color: #1a3a8e !important;
+    color: #ffffff !important;
+    border: 1.5px solid #3a6dd8 !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    padding: 0.4rem 1rem !important;
+}
+.stButton > button:hover {
+    background-color: #2e5ec0 !important;
+    border-color: #6090e8 !important;
+    color: #ffffff !important;
+}
+.stButton > button svg {
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+/* ── RADIO BUTTONS ── */
+[data-testid="stRadio"] label {
+    color: #0a1f44 !important;
+}
+[data-testid="stRadio"] div[role="radio"] div {
+    border-color: #3a6dd8 !important;
+}
+[data-testid="stRadio"] div[role="radio"][aria-checked="true"] div {
+    background-color: #3a6dd8 !important;
+    border-color: #3a6dd8 !important;
+}
+
+/* ── CHECKBOX ── */
+[data-testid="stCheckbox"] label { color: #0a1f44 !important; }
+[data-testid="stCheckbox"] input + div {
+    border-color: #3a6dd8 !important;
+}
+[data-testid="stCheckbox"] input:checked + div {
+    background-color: #3a6dd8 !important;
+    border-color: #3a6dd8 !important;
+}
+[data-testid="stCheckbox"] input:checked + div svg {
+    fill: #ffffff !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* ── SELECTBOX (main area) ── */
+[data-baseweb="select"]:not(section[data-testid="stSidebar"] *) {
+    background-color: #ffffff !important;
+    border-color: #a0b8e8 !important;
+}
+[data-baseweb="select"]:not(section[data-testid="stSidebar"] *) svg {
+    fill: #0a1f44 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+/* ── COLLAPSE / EXPAND SIDEBAR ARROW ── */
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="collapsedControl"] svg,
+button[aria-label*="sidebar"] svg,
+button[aria-label*="Sidebar"] svg {
+    fill: #0a1f44 !important;
+    color: #0a1f44 !important;
+    stroke: #0a1f44 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    width: 20px !important;
+    height: 20px !important;
+}
+
+</style>
+""", unsafe_allow_html=True)

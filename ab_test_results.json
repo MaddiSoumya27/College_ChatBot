@@ -1,0 +1,222 @@
+[
+  {
+    "version": "A",
+    "question_id": 1,
+    "question": "What is the annual tuition fee for the CSE program?",
+    "answerable": true,
+    "answer": "The annual tuition fee for the CSE program is \u20b91,20,000 [Fee Structure, Chunk 1].",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 7.51,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "A",
+    "question_id": 2,
+    "question": "Who is the principal of BVRIT Hyderabad and what are her qualifications?",
+    "answerable": true,
+    "answer": "The principal of BVRIT Hyderabad is Dr. K. V. N. Sunitha. Her qualifications are:\n- B.Tech (ECE)\n- M.Tech (CS)\n- Ph.D (CSE, JNTUH 2006) [Faculty > Principal \u2014 Dr. K. V. N. Sunitha, Chunk 1].",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 6.19,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "A",
+    "question_id": 3,
+    "question": "What is the highest placement package recorded at BVRIT Hyderabad?",
+    "answerable": true,
+    "answer": "The highest placement package recorded at BVRIT Hyderabad is \u20b952 LPA by Microsoft [Placements > Highest Packages, Chunk 1].",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 3.95,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "A",
+    "question_id": 4,
+    "question": "What M.Tech programs does BVRIT Hyderabad offer?",
+    "answerable": true,
+    "answer": "BVRIT Hyderabad offers the following M.Tech programs:\n\n- M.Tech Data Sciences (intake: 18)\n- M.Tech Computer Science and Engineering (intake: 12)\n- M.Tech VLSI Design (intake: 12) [Verified Facts \u2014 PG Programs, Chunk 2].",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 4.06,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "A",
+    "question_id": 5,
+    "question": "How many students can the hostel accommodate?",
+    "answerable": true,
+    "answer": "The hostel can accommodate over 500 students [Campus & Facilities > Hostel Capacity and Security, Chunk 6].",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 3.72,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "A",
+    "question_id": 6,
+    "question": "What departments are available at BVRIT Hyderabad?",
+    "answerable": true,
+    "answer": "The departments available at BVRIT Hyderabad are:\n\n- Basic Sciences and Humanities (BS&H)\n- Computer Science and Engineering (CSE)\n- Artificial Intelligence & Machine Learning (CSE-AIML)\n- Electronics and Communication Engineering (ECE)\n- Electrical and Electronics Engineering (EEE)\n- Information Technology (IT) [Departments > Departments Overview, Chunk 1]",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 4.83,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "A",
+    "question_id": 7,
+    "question": "What is the contact phone number for BVRIT Hyderabad?",
+    "answerable": true,
+    "answer": "**BVRIT Hyderabad contact details:**\n- Phone: +91 40 4241 7773\n- Email: info@bvrithyderabad.edu.in\n- Website: bvrithyderabad.edu.in\n- Admissions: Dr. J. Manoj Kumar \u2014 92471 64714",
+    "has_citation": false,
+    "refused": false,
+    "latency_s": 0.0,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "A",
+    "question_id": 8,
+    "question": "What is the pass percentage for CSE students in the 2024 semester exams?",
+    "answerable": false,
+    "answer": "I don't have that information in my knowledge base. Please contact BVRIT Hyderabad directly at info@bvrithyderabad.edu.in or +91 40 4241 7773.",
+    "has_citation": false,
+    "refused": true,
+    "latency_s": 3.92,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "A",
+    "question_id": 9,
+    "question": "Does BVRIT Hyderabad offer an exchange program with international universities?",
+    "answerable": false,
+    "answer": "I don't have that information in my knowledge base. Please contact BVRIT Hyderabad directly at info@bvrithyderabad.edu.in or +91 40 4241 7773.",
+    "has_citation": false,
+    "refused": true,
+    "latency_s": 4.46,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "A",
+    "question_id": 10,
+    "question": "What is the average CGPA of placed students from the ECE department?",
+    "answerable": false,
+    "answer": "I don't have that information in my knowledge base. Please contact BVRIT Hyderabad directly at info@bvrithyderabad.edu.in or +91 40 4241 7773.",
+    "has_citation": false,
+    "refused": true,
+    "latency_s": 4.24,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "B",
+    "question_id": 1,
+    "question": "What is the annual tuition fee for the CSE program?",
+    "answerable": true,
+    "answer": "The annual tuition fee for the CSE program is \u20b91,20,000 [Fee Structure, Chunk 1].",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 5.25,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "B",
+    "question_id": 2,
+    "question": "Who is the principal of BVRIT Hyderabad and what are her qualifications?",
+    "answerable": true,
+    "answer": "The principal of BVRIT Hyderabad is Dr. K. V. N. Sunitha. Her qualifications are as follows:\n- B.Tech (ECE)\n- M.Tech (CS)\n- Ph.D (CSE, JNTUH 2006) [Faculty > Principal \u2014 Dr. K. V. N. Sunitha, Chunk 1].",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 5.68,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "B",
+    "question_id": 3,
+    "question": "What is the highest placement package recorded at BVRIT Hyderabad?",
+    "answerable": true,
+    "answer": "The highest placement package recorded at BVRIT Hyderabad is \u20b952 LPA by Microsoft [Placements > Highest Packages, Chunk 1].",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 4.76,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "B",
+    "question_id": 4,
+    "question": "What M.Tech programs does BVRIT Hyderabad offer?",
+    "answerable": true,
+    "answer": "BVRIT Hyderabad offers the following M.Tech programs:\n\n- M.Tech Data Sciences \u2014 intake: 18\n- M.Tech Computer Science and Engineering \u2014 intake: 12\n- M.Tech VLSI Design \u2014 intake: 12 [Verified Facts \u2014 PG Programs, Chunk 2].",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 4.92,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "B",
+    "question_id": 5,
+    "question": "How many students can the hostel accommodate?",
+    "answerable": true,
+    "answer": "The hostel can accommodate 500+ students [Campus & Facilities > Hostel Capacity and Security, Chunk 6].",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 4.46,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "B",
+    "question_id": 6,
+    "question": "What departments are available at BVRIT Hyderabad?",
+    "answerable": true,
+    "answer": "The departments available at BVRIT Hyderabad are:\n\n- Computer Science and Engineering (CSE)\n- Artificial Intelligence & Machine Learning (CSE-AIML)\n- Electronics and Communication Engineering (ECE)\n- Electrical and Electronics Engineering (EEE)\n- Information Technology (IT)\n- Basic Sciences and Humanities (BS&H) [Departments > Departments Overview, Chunk 1].",
+    "has_citation": true,
+    "refused": false,
+    "latency_s": 6.17,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "B",
+    "question_id": 7,
+    "question": "What is the contact phone number for BVRIT Hyderabad?",
+    "answerable": true,
+    "answer": "**BVRIT Hyderabad contact details:**\n- Phone: +91 40 4241 7773\n- Email: info@bvrithyderabad.edu.in\n- Website: bvrithyderabad.edu.in\n- Admissions: Dr. J. Manoj Kumar \u2014 92471 64714",
+    "has_citation": false,
+    "refused": false,
+    "latency_s": 0.0,
+    "refusal_classification": "N/A"
+  },
+  {
+    "version": "B",
+    "question_id": 8,
+    "question": "What is the pass percentage for CSE students in the 2024 semester exams?",
+    "answerable": false,
+    "answer": "I don't have that information in my knowledge base. Please contact BVRIT Hyderabad directly at info@bvrithyderabad.edu.in or +91 40 4241 7773.",
+    "has_citation": false,
+    "refused": true,
+    "latency_s": 3.87,
+    "refusal_classification": "CORRECT \u2014 question is genuinely not answerable from the KB"
+  },
+  {
+    "version": "B",
+    "question_id": 9,
+    "question": "Does BVRIT Hyderabad offer an exchange program with international universities?",
+    "answerable": false,
+    "answer": "I don't have that information in my knowledge base. Please contact BVRIT Hyderabad directly at info@bvrithyderabad.edu.in or +91 40 4241 7773.",
+    "has_citation": false,
+    "refused": true,
+    "latency_s": 4.16,
+    "refusal_classification": "CORRECT \u2014 question is genuinely not answerable from the KB"
+  },
+  {
+    "version": "B",
+    "question_id": 10,
+    "question": "What is the average CGPA of placed students from the ECE department?",
+    "answerable": false,
+    "answer": "I don't have that information in my knowledge base. Please contact BVRIT Hyderabad directly at info@bvrithyderabad.edu.in or +91 40 4241 7773.",
+    "has_citation": false,
+    "refused": true,
+    "latency_s": 5.9,
+    "refusal_classification": "CORRECT \u2014 question is genuinely not answerable from the KB"
+  }
+]

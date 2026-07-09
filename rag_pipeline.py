@@ -18,6 +18,13 @@ from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
+# ── Observability: all LLM calls are routed through logged_llm_call ───────────
+from observability import (
+    logged_llm_call,
+    assign_prompt_version,
+    get_prompt_suffix,
+)
+
 from fee_calculator import (
     calculate_fee,
     calculate_total_course_fee,
@@ -396,7 +403,11 @@ def _reformulate_query(question: str, llm: ChatOpenAI) -> str:
             f"Q: {question}\n"
             "A:"
         )
-        resp = llm.invoke([HumanMessage(content=prompt)])
+        resp = logged_llm_call(
+            llm.invoke,
+            "query_reformulation",
+            input=[HumanMessage(content=prompt)],
+        )
         rewritten = resp.content.strip().strip('"').strip("'").rstrip(".").strip()
         return rewritten if rewritten else question
     except Exception:
@@ -488,7 +499,11 @@ def _resolve_coreference(question: str, chat_history: list[dict], llm: ChatOpenA
             f"Follow-up question: {question}\n\n"
             "Resolved question (output ONLY the resolved question, no explanation):"
         )
-        resp = llm.invoke([HumanMessage(content=prompt)])
+        resp = logged_llm_call(
+            llm.invoke,
+            "coreference_resolution",
+            input=[HumanMessage(content=prompt)],
+        )
         resolved = resp.content.strip().strip('"').strip("'")
         # Reject if the model returned a clarification request anyway
         if not resolved or "clarify" in resolved.lower() or "?" not in resolved:
@@ -711,7 +726,7 @@ def _try_fee_calculator(question: str, llm: ChatOpenAI) -> Optional[tuple[str, l
             SystemMessage(content=_FEE_TOOL_SYSTEM_PROMPT),
             HumanMessage(content=question),
         ]
-        response = tool_llm.invoke(messages)
+        response = logged_llm_call(tool_llm.invoke, "tool_call", input=messages)
 
         if response.tool_calls:
             for tool_call in response.tool_calls:
@@ -895,7 +910,7 @@ def _try_date_checker(question: str, llm: ChatOpenAI) -> Optional[tuple[str, lis
             )),
             HumanMessage(content=question),
         ]
-        response = tool_llm.invoke(messages)
+        response = logged_llm_call(tool_llm.invoke, "tool_call", input=messages)
         if response.tool_calls:
             for tc in response.tool_calls:
                 if tc.get("name") == "check_date":
@@ -916,6 +931,7 @@ def run_rag_pipeline(
     chat_history: list[dict],
     top_k: int = TOP_K,
     section_filter: Optional[str] = None,
+    prompt_version: Optional[str] = None,
 ) -> tuple[str, list[str], bool]:
     """
     Returns (response_text, citations_list, refused_bool).
@@ -1034,8 +1050,13 @@ def run_rag_pipeline(
     if critical_facts:
         context = critical_facts + "\n\n---\n\n" + context
 
-    # 7. Build message list for the LLM
-    system_content = SYSTEM_PROMPT.format(context=context)
+    # ── A/B prompt version assignment ─────────────────────────────────────
+    # If the caller didn't specify a version (normal live traffic), randomly assign one.
+    if prompt_version is None:
+        prompt_version = assign_prompt_version()
+
+    # Apply version suffix to the system prompt
+    system_content = SYSTEM_PROMPT.format(context=context) + get_prompt_suffix(prompt_version)
 
     messages = [SystemMessage(content=system_content)]
 
@@ -1059,8 +1080,13 @@ def run_rag_pipeline(
                     "Include only data present in the context above.]"
         ))
 
-    # 8. Generate answer
-    response = llm.invoke(messages)
+    # 8. Generate answer — routed through observability logging wrapper
+    response = logged_llm_call(
+        llm.invoke,
+        "rag_generation",
+        prompt_version=prompt_version,
+        input=messages,
+    )
     answer = response.content
 
     # 9. Parse citations and refusal flag

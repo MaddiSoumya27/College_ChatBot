@@ -1,0 +1,157 @@
+# Prompt for kiro-cli — Add Observability to BVRITH Chatbot
+
+## PROMPT START
+
+I'm building a RAG-powered college FAQ chatbot for BVRIT HYDERABAD College of Engineering
+for Women (Python + Streamlit + LangChain + ChromaDB + an LLM API for grounded generation).
+It already has RAG (retrieval + grounded generation with citations) and a memory layer
+(short-term history, summarization, persistent SQLite user profiles, personalization,
+privacy controls). I now need a production observability layer on top: logging, a live
+dashboard, threshold alerts, an A/B test on the grounding prompt, and a log-analysis
+exercise. Do NOT change how retrieval, citation generation, or memory work — observability
+should wrap around existing calls, not alter their logic.
+
+### Current project structure (adjust to match reality)
+```
+bvrith_chatbot/
+├── app.py                  # Streamlit entrypoint, chat UI
+├── rag_pipeline.py         # retriever, grounding prompt, generation call
+├── memory.py                # short/medium/long-term memory, personalization, privacy
+├── ingest.py                # chunking + embedding + Chroma indexing
+├── bvrith_chroma_db/        # persisted vector store
+└── requirements.txt
+```
+
+### Constraints
+- All new observability code goes in a new `observability.py` module — don't scatter
+  logging logic inline across `app.py`/`rag_pipeline.py`/`memory.py`; those files should
+  just import and call into `observability.py`.
+- Every LLM call anywhere in the app (RAG generation, tool calls, memory summarization,
+  any LLM-as-judge call) must be routed through the same logging wrapper — no exceptions,
+  since Exercise 5's diagnosis depends on complete logs.
+- Keep a running `OBSERVABILITY_NOTES.md` file and append a section to it after each
+  exercise with: what was implemented, how it was tested, and actual output/results
+  (metrics, screenshots described in text, log excerpts) — I need this for a lab report.
+- Use real token/cost figures from the API response's usage field — don't estimate cost
+  from a hardcoded guess; look up the actual per-model $/1K-token input and output rates
+  and compute cost = (input_tokens/1000 * input_rate) + (output_tokens/1000 * output_rate).
+
+### Build these five features, in order
+
+**1. Logging wrapper — one log line per LLM call**
+Implement `logged_llm_call(fn, call_type, **kwargs)` in `observability.py` that wraps any
+LLM call and records exactly these seven fields per call:
+`timestamp, model, input_tokens, output_tokens, latency_seconds, estimated_cost_usd, status`
+(status = "success" or "failure", with the exception message captured on failure).
+Also tag each log entry with a `call_type` field (`"rag_generation"`, `"tool_call"`,
+`"summarization"`, `"judge"`, etc.) so logs can be filtered/aggregated by purpose later.
+Store logs in an in-session list AND append each entry to a `logs/bvrith_chatbot.jsonl`
+file (one JSON object per line) for persistence across restarts.
+Replace every raw LLM call across the codebase (`rag_pipeline.py`'s generation call,
+`memory.py`'s summarization call, any judge/eval call) with this wrapper — grep the
+codebase for direct SDK call sites and confirm none are left unwrapped.
+Test: run 5 different queries through the chatbot (mix simple factual + multi-section +
+one that should be refused as out-of-scope), print the resulting log entries, and in
+`OBSERVABILITY_NOTES.md` answer: which query was slowest and why, which cost the most and
+why (tie cost back to token counts, not guesswork).
+
+**2. Streamlit "Session Stats" sidebar dashboard**
+Add a sidebar panel, updated after every query, showing via `st.metric()` (each with a
+delta vs the previous query, so Streamlit renders the green/red arrow automatically):
+- Total queries this session
+- Average latency (seconds)
+- P95 latency (seconds) — compute from the in-session log list, not an approximation
+- Total cost (USD)
+- Total tokens (input + output)
+- Error count
+Pull these from the same log list Exercise 1 populates — don't maintain a second parallel
+set of counters. Run 10 queries through the app and describe the final dashboard state
+(exact numbers) in `OBSERVABILITY_NOTES.md`.
+
+**3. Threshold alerts + input length validation**
+Define thresholds as named constants: `LATENCY_ALERT_THRESHOLD = 10` (seconds),
+`COST_ALERT_THRESHOLD = 0.10` (USD per query), `ERROR_RATE_ALERT_THRESHOLD = 0.05`
+(fraction, computed over the last 20 queries in the log — fewer than 20 total queries means
+compute over however many exist so far). After every query, run an alert check function
+against the just-completed call and the rolling window; if any threshold is breached,
+render `st.warning()` in the chat area with a clear message naming which threshold and by
+how much.
+Separately, add an input validator in the chat input path: if the user's message exceeds
+2000 characters, reject it before it reaches the LLM at all, show a friendly message asking
+them to shorten their question, and log the rejected attempt (as its own log entry with
+status "rejected_input", not sent to the LLM so it costs nothing).
+Test and report in `OBSERVABILITY_NOTES.md`: (a) paste a >2000 character block of text as a
+query and confirm it's rejected before any API call is made; (b) send 20 rapid real
+questions and report whether/when the latency or error-rate alert fired, with the actual
+numbers observed.
+
+**4. A/B test on the grounding prompt**
+Implement two grounding prompt variants:
+- **Version A**: the existing Day 4 grounding prompt, unchanged.
+- **Version B**: Version A plus this addition: "Cite [Section, Page] for every fact. If
+  the exact answer is not in the context, say 'I don't have that specific information.'
+  Never infer or extrapolate."
+On each incoming query, randomly assign A or B with 50/50 probability (`random.choice` or
+equivalent), and log which version was used as part of the same log entry from Exercise 1
+(add an `prompt_version` field).
+Prepare a fixed list of 10 test questions covering the BVRITH knowledge base's sections
+(mix of clearly-answerable and at least 2-3 borderline/not-in-doc questions), run all 10
+through BOTH versions (20 total calls, not randomly sampled for this specific test — you
+want a controlled paired comparison here even though production traffic uses random
+assignment), and build a comparison table in `OBSERVABILITY_NOTES.md` with columns:
+question | version | answer | has_citation (bool) | refused (bool). Then summarize: which
+version produced more citations, which refused more often, and for each refusal under
+Version B classify it as CORRECT (question genuinely isn't answerable from the doc) or
+INCORRECT (the doc does contain the answer but B was too strict to give it) — this
+classification requires you to actually check the source knowledge base content, not guess.
+
+**5. Diagnose a production problem from logs (analysis exercise — no new code required,
+but write the analysis into `OBSERVABILITY_NOTES.md`)**
+Given this simulated one-week log summary for the BVRITH chatbot:
+
+| Day | Queries | Avg latency | Total cost | Errors |
+|---|---|---|---|---|
+| Monday | 95 | 2.1s | $0.28 | 0 |
+| Tuesday | 102 | 2.3s | $0.31 | 0 |
+| Wednesday | 98 | 2.2s | $4.82 | 0 |
+| Thursday | 110 | 3.8s | $0.33 | 3 |
+| Friday | 88 | 8.5s | $0.27 | 12 |
+
+Additional detail:
+- Wednesday: 3 of the 98 queries had input_tokens > 15,000 (normal baseline ~1,200 for this
+  chatbot); those 3 queries alone accounted for $4.40 of Wednesday's $4.82 total cost.
+- Friday: all 12 errors are `RateLimitError`, clustered between 4:00–5:00 PM. Average
+  latency outside that window on Friday was 2.4s (i.e., normal) — the 8.5s daily average is
+  being dragged up by the 4-5PM window specifically.
+
+Write up in `OBSERVABILITY_NOTES.md`:
+1. Identify both anomalies (Wednesday's cost spike, Friday's latency/error spike).
+2. For each anomaly: root cause, which specific metric/log field would have caught it
+   earliest, the exact alert threshold you'd configure to catch it next time, and a
+   concrete production fix (e.g. for Wednesday: input length capping — tie this back to
+   Exercise 3's 2000-character validator and note whether that validator would actually
+   have prevented this incident; for Friday: rate-limit handling — e.g. exponential backoff/
+   retry, request queuing, or upgrading API tier, tied to the 4-5PM clustering which
+   suggests a specific traffic pattern like a class period or a scheduled batch job).
+3. Describe (in text, as if sketching it) a monitoring dashboard layout that would surface
+   both anomalies at a glance — name the specific chart types and what's on each axis.
+4. Write one paragraph, in plain non-technical language suitable for the college dean,
+   explaining what happened on Wednesday and Friday and what's being done to prevent it —
+   no jargon like "rate limit" or "token count," describe it in terms of what the dean
+   would actually care about (cost, reliability, user experience).
+
+### Deliverables
+1. `observability.py` — logging wrapper, cost calculation, dashboard metric helpers, alert
+   threshold checks, input validator, A/B assignment + logging
+2. Updated `app.py`, `rag_pipeline.py`, `memory.py` wherever they need to route calls
+   through `logged_llm_call()` or read from the shared log
+3. `logs/bvrith_chatbot.jsonl` — actual accumulated log file from your test runs
+4. `OBSERVABILITY_NOTES.md` — one section per exercise with implementation notes + real
+   test results/numbers/tables as specified above, plus the full Exercise 5 written analysis
+5. Any new dependencies added to `requirements.txt`
+
+Work through the five exercises in order and actually run the specified tests after each
+one (don't just write the code — execute it and record real output), since Exercise 2's
+dashboard and Exercise 4's A/B comparison both read from the log data Exercise 1 produces.
+
+## PROMPT END

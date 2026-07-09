@@ -101,7 +101,8 @@ Reply with a JSON object with exactly two fields:
 
 JSON only, no extra text."""
 
-    response = llm.invoke([HumanMessage(content=prompt)])
+    from observability import logged_llm_call
+    response = logged_llm_call(llm.invoke, "judge", input=[HumanMessage(content=prompt)])
     raw = response.content.strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
